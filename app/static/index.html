@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrioAI — So sánh 3 AI &amp; Phản biện chéo cho học sinh</title>
+  <meta
+    name="description"
+    content="Ứng dụng web chạy local giúp học sinh hỏi song song Gemini, GPT và Perplexity, xem 3 câu trả lời độc lập rồi phản biện và chốt kết quả."
+  />
+
+  <!-- Font tối ưu dấu tiếng Việt -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Tailwind CSS CDN (không cần cài Node.js hay build tool cho học sinh) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Be Vietnam Pro"', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+          },
+          colors: {
+            canvas: '#F7F6F2',
+            surface: '#FFFFFF',
+            ink: '#1C1917',
+            muted: '#57534E',
+            line: '#E6E3DC',
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    body {
+      background-color: #F7F6F2;
+      color: #1C1917;
+      font-family: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .card-surface {
+      background: #FFFFFF;
+      border: 1px solid #E6E3DC;
+      box-shadow: 0 1px 2px rgba(28, 25, 23, 0.04), 0 6px 20px rgba(28, 25, 23, 0.03);
+    }
+
+    .answer-prose p {
+      margin-bottom: 0.65rem;
+      line-height: 1.7;
+    }
+    .answer-prose p:last-child {
+      margin-bottom: 0;
+    }
+    .answer-prose ul,
+    .answer-prose ol {
+      margin: 0.45rem 0 0.75rem 1.25rem;
+      line-height: 1.65;
+    }
+    .answer-prose ul {
+      list-style-type: disc;
+    }
+    .answer-prose ol {
+      list-style-type: decimal;
+    }
+    .answer-prose li {
+      margin-bottom: 0.35rem;
+    }
+    .answer-prose strong {
+      font-weight: 600;
+      color: #1C1917;
+    }
+    .answer-prose code {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85em;
+      background: #F4F2EC;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.25rem;
+    }
+
+    @keyframes fadeSlideUp {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .animate-fade-in {
+      animation: fadeSlideUp 0.24s ease-out both;
+    }
+
+    @keyframes spinSmooth {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    .spinner-ring {
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 9999px;
+      display: inline-block;
+      animation: spinSmooth 0.7s linear infinite;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="sticky top-0 z-20 bg-[#F7F6F2]/90 backdrop-blur border-b border-line">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div
+          class="w-9 h-9 rounded-xl bg-stone-900 text-white flex items-center justify-center font-bold text-base tracking-tight select-none"
+          aria-hidden="true"
+        >
+          3
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold tracking-tight text-ink leading-tight">
+            TrioAI
+          </h1>
+          <p class="text-xs sm:text-sm text-muted">
+            Hỏi song song 3 AI độc lập · Phản biện &amp; chốt kết quả
+          </p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2.5">
+        <span
+          id="mode-badge"
+          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-stone-200/80 text-stone-700"
+        >
+          Đang kiểm tra cấu hình...
+        </span>
+
+        <div
+          id="api-counter-box"
+          class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-white border border-line text-ink"
+          title="Số lần gọi API thật trong phiên làm việc hiện tại (Chế độ demo không tính)"
+        >
+          <span class="text-muted">Lượt gọi API thật:</span>
+          <span id="api-calls-total" class="font-mono font-semibold text-stone-900">0</span>
+          <span id="api-calls-breakdown" class="hidden sm:inline font-mono text-[11px] text-muted">
+            (G: 0 · GPT: 0 · P: 0)
+          </span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <!-- Thông báo Chế độ Demo mặc định (chỉ hiện khi chưa có API key nào) -->
+    <section
+      id="demo-mode-banner"
+      class="hidden rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950"
+      role="status"
+    >
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <p>
+          <strong class="font-semibold">Đang ở Chế độ demo mặc định:</strong>
+          Chưa phát hiện API key nào trong file <code class="font-mono text-xs bg-amber-100 px-1.5 py-0.5 rounded">.env</code>.
+          Bạn vẫn có thể dùng thử toàn bộ luồng bằng dữ liệu giả lập — <strong>không gọi API thật và không tốn tiền</strong>.
+        </p>
+      </div>
+    </section>
+
+    <!-- Khung nhập câu hỏi & thanh trạng thái 3 hãng -->
+    <section class="card-surface rounded-2xl p-5 sm:p-6 space-y-4" aria-label="Nhập câu hỏi">
+      <!-- Trạng thái từng hãng AI (chỉ hiện tên model & trạng thái, không bao giờ hiện API key) -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-line">
+        <span class="text-xs font-semibold uppercase tracking-wider text-muted">
+          Trạng thái kết nối API chính thức
+        </span>
+        <div id="provider-chips" class="flex flex-wrap items-center gap-2 text-xs">
+          <span id="chip-gemini" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 text-muted">
+            <span class="w-2 h-2 rounded-full bg-stone-400"></span>
+            Gemini
+          </span>
+          <span id="chip-openai" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 text-muted">
+            <span class="w-2 h-2 rounded-full bg-stone-400"></span>
+            GPT
+          </span>
+          <span id="chip-perplexity" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 text-muted">
+            <span class="w-2 h-2 rounded-full bg-stone-400"></span>
+            Perplexity
+          </span>
+        </div>
+      </div>
+
+      <!-- Ô nhập câu hỏi -->
+      <div>
+        <label for="question-input" class="block text-sm font-semibold text-ink mb-2">
+          Nhập câu hỏi học tập của bạn
+        </label>
+        <textarea
+          id="question-input"
+          rows="3"
+          maxlength="4000"
+          placeholder="Ví dụ: Quang hợp và hô hấp tế bào khác nhau thế nào? Giải thích dễ hiểu giúp học sinh cấp 2."
+          class="w-full rounded-xl border border-line bg-[#FAF9F6] px-4 py-3 text-sm sm:text-base text-ink placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-stone-800/15 focus:border-stone-500 transition resize-y"
+        ></textarea>
+
+        <!-- Gợi ý câu hỏi nhanh -->
+        <div class="mt-2.5 flex flex-wrap items-center gap-2">
+          <span class="text-xs text-muted">Thử nhanh:</span>
+          <button
+            type="button"
+            data-sample="Quang hợp và hô hấp tế bào khác nhau thế nào? Giải thích ngắn gọn cho học sinh."
+            class="sample-btn text-xs px-2.5 py-1 rounded-lg bg-stone-100 hover:bg-stone-200/80 text-stone-700 transition"
+          >
+            Quang hợp vs Hô hấp tế bào
+          </button>
+          <button
+            type="button"
+            data-sample="Cách học thuộc từ vựng tiếng Anh lâu quên cho học sinh cấp 2?"
+            class="sample-btn text-xs px-2.5 py-1 rounded-lg bg-stone-100 hover:bg-stone-200/80 text-stone-700 transition"
+          >
+            Cách nhớ từ vựng tiếng Anh
+          </button>
+          <button
+            type="button"
+            data-sample="Vì sao cần đối chiếu nhiều nguồn khi hỏi bài bằng AI?"
+            class="sample-btn text-xs px-2.5 py-1 rounded-lg bg-stone-100 hover:bg-stone-200/80 text-stone-700 transition"
+          >
+            Vì sao cần kiểm chứng câu trả lời của AI?
+          </button>
+        </div>
+      </div>
+
+      <!-- Hàng nút điều khiển -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button
+            id="btn-run-all"
+            type="button"
+            class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 active:scale-[0.99] text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span>Chạy cả ba</span>
+          </button>
+
+          <button
+            id="btn-run-demo"
+            type="button"
+            class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-stone-100 active:scale-[0.99] text-stone-800 border border-line text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span>Chạy demo không tốn tiền</span>
+          </button>
+
+          <button
+            id="btn-synthesize"
+            type="button"
+            disabled
+            class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white text-sm font-semibold transition disabled:bg-stone-200 disabled:text-stone-500 disabled:cursor-not-allowed"
+          >
+            <span id="btn-synthesize-label">Phản biện &amp; chốt</span>
+          </button>
+        </div>
+
+        <p id="run-hint" class="text-xs text-muted">
+          Không tự động gọi API — chỉ chạy khi bạn bấm nút.
+        </p>
+      </div>
+
+      <!-- Lý do disable nút Phản biện & chốt hoặc cảnh báo nhập liệu -->
+      <div class="space-y-1.5">
+        <p id="synthesize-reason" class="text-xs text-muted"></p>
+        <p id="form-error" class="hidden text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2" role="alert"></p>
+      </div>
+    </section>
+
+    <!-- 3 cột câu trả lời song song -->
+    <section aria-label="Câu trả lời của 3 AI">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
+          So sánh câu trả lời độc lập (3 cột)
+        </h2>
+        <span id="run-mode-indicator" class="text-xs text-muted"></span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+        <!-- Cột 1: Gemini -->
+        <article id="col-gemini" class="card-surface rounded-2xl flex flex-col overflow-hidden">
+          <div class="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2 bg-[#FCFBF9]">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0" aria-hidden="true"></span>
+              <div class="min-w-0">
+                <h3 class="text-sm font-bold text-ink truncate">Gemini</h3>
+                <p id="model-gemini" class="text-[11px] font-mono text-muted truncate">gemini-3.8-flash</p>
+              </div>
+            </div>
+            <span
+              id="status-gemini"
+              class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 text-stone-600"
+            >
+              Chờ câu hỏi
+            </span>
+          </div>
+          <div id="body-gemini" class="p-4 sm:p-5 flex-1 text-sm text-ink answer-prose">
+            <p class="text-stone-400 italic">Câu trả lời của Gemini sẽ hiện tại đây ngay khi xong.</p>
+          </div>
+          <div id="footer-gemini" class="px-4 py-2.5 border-t border-line/70 text-[11px] text-muted hidden"></div>
+        </article>
+
+        <!-- Cột 2: GPT -->
+        <article id="col-openai" class="card-surface rounded-2xl flex flex-col overflow-hidden">
+          <div class="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2 bg-[#FCFBF9]">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0" aria-hidden="true"></span>
+              <div class="min-w-0">
+                <h3 class="text-sm font-bold text-ink truncate">GPT</h3>
+                <p id="model-openai" class="text-[11px] font-mono text-muted truncate">gpt-6.2-astra</p>
+              </div>
+            </div>
+            <span
+              id="status-openai"
+              class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 text-stone-600"
+            >
+              Chờ câu hỏi
+            </span>
+          </div>
+          <div id="body-openai" class="p-4 sm:p-5 flex-1 text-sm text-ink answer-prose">
+            <p class="text-stone-400 italic">Câu trả lời của GPT sẽ hiện tại đây ngay khi xong.</p>
+          </div>
+          <div id="footer-openai" class="px-4 py-2.5 border-t border-line/70 text-[11px] text-muted hidden"></div>
+        </article>
+
+        <!-- Cột 3: Perplexity -->
+        <article id="col-perplexity" class="card-surface rounded-2xl flex flex-col overflow-hidden">
+          <div class="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2 bg-[#FCFBF9]">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2.5 h-2.5 rounded-full bg-teal-600 shrink-0" aria-hidden="true"></span>
+              <div class="min-w-0">
+                <h3 class="text-sm font-bold text-ink truncate">Perplexity</h3>
+                <p id="model-perplexity" class="text-[11px] font-mono text-muted truncate">sonar</p>
+              </div>
+            </div>
+            <span
+              id="status-perplexity"
+              class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 text-stone-600"
+            >
+              Chờ câu hỏi
+            </span>
+          </div>
+          <div id="body-perplexity" class="p-4 sm:p-5 flex-1 text-sm text-ink answer-prose">
+            <p class="text-stone-400 italic">Câu trả lời của Perplexity (kèm nguồn nếu có) sẽ hiện tại đây ngay khi xong.</p>
+          </div>
+          <!-- Danh sách nguồn từ Perplexity (chỉ hiển thị khi API trả về citations thật) -->
+          <div id="citations-perplexity" class="hidden px-4 py-3 border-t border-line bg-[#FAF9F6]">
+            <p class="text-xs font-semibold text-stone-700 mb-2">Nguồn tham khảo từ Perplexity</p>
+            <ul id="citations-list" class="space-y-1.5 text-xs"></ul>
+          </div>
+          <div id="footer-perplexity" class="px-4 py-2.5 border-t border-line/70 text-[11px] text-muted hidden"></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Khu vực Phản biện & chốt -->
+    <section id="synthesize-section" class="hidden space-y-3 animate-fade-in" aria-label="Phản biện và chốt kết quả">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
+          Kết quả Phản biện &amp; Chốt
+        </h2>
+        <span class="text-xs text-muted">
+          Gemini kiểm tra lỗi (tối đa 3 điểm, chống chèn lệnh) → GPT viết bản chốt tiếng Việt
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <!-- Bước 1: Gemini phản biện -->
+        <article class="card-surface rounded-2xl lg:col-span-5 flex flex-col overflow-hidden">
+          <div class="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2 bg-[#FCFBF9]">
+            <div>
+              <h3 class="text-sm font-bold text-ink">Bước 1 · Gemini phản biện</h3>
+              <p class="text-[11px] text-muted">Tối đa 3 điểm sai, mâu thuẫn, thiếu nguồn hoặc quá phức tạp</p>
+            </div>
+            <span
+              id="status-critique"
+              class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 text-stone-600"
+            >
+              Chờ chạy
+            </span>
+          </div>
+          <div id="body-critique" class="p-4 sm:p-5 flex-1 text-sm text-ink answer-prose">
+            <p class="text-stone-400 italic">Đang chờ bắt đầu...</p>
+          </div>
+        </article>
+
+        <!-- Bước 2: GPT chốt -->
+        <article class="card-surface rounded-2xl lg:col-span-7 flex flex-col overflow-hidden">
+          <div class="px-4 py-3.5 border-b border-line flex items-center justify-between gap-2 bg-[#FCFBF9]">
+            <div>
+              <h3 class="text-sm font-bold text-ink">Bước 2 · GPT chốt câu trả lời</h3>
+              <p class="text-[11px] text-muted">Ngắn gọn bằng tiếng Việt · Nêu rõ điều chưa chắc chắn · Không bịa nguồn</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                id="btn-copy-final"
+                type="button"
+                class="hidden text-xs px-2.5 py-1 rounded-lg border border-line bg-white hover:bg-stone-100 text-stone-700 font-medium transition"
+              >
+                Sao chép
+              </button>
+              <span
+                id="status-final"
+                class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 text-stone-600"
+              >
+                Chờ bước 1
+              </span>
+            </div>
+          </div>
+          <div id="body-final" class="p-4 sm:p-5 flex-1 text-sm text-ink answer-prose">
+            <p class="text-stone-400 italic">Sẽ tổng hợp ngay sau khi Gemini phản biện xong.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer an toàn -->
+  <footer class="border-t border-line bg-white/60 mt-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-muted">
+      <p>
+        <strong>TrioAI</strong> chỉ kết nối trực tiếp API chính thức bằng API key bạn tự điền trong file <code class="font-mono">.env</code>.
+      </p>
+      <p>
+        Không proxy · Không lưu hay hiển thị API key · Giới hạn timeout 60 giây.
+      </p>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
